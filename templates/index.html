@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Email Spam Classifier</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap');
+    * { box-sizing: border-box; }
+    body, html {
+      margin: 0;
+      height: 100%;
+      font-family: 'Inter', sans-serif;
+      color: #222;
+      background: linear-gradient(135deg, #4b6cb7 0%, #182848 100%),
+                  url('https://www.transparenttextures.com/patterns/diagmonds-light.png') repeat;
+      background-size: auto, 150px 150px;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      padding: 20px;
+    }
+
+    .container {
+      background: #fff;
+      border: 1px solid #e2e8f0;
+      border-radius: 12px;
+      max-width: 600px;
+      width: 100%;
+      padding: 40px 40px 50px;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.15);
+      text-align: center;
+      position: relative;
+      z-index: 2;
+    }
+
+    h1 {
+      font-weight: 600;
+      margin-bottom: 10px;
+      font-size: 1.9rem;
+      color: #2c3e50;
+      letter-spacing: 0.04em;
+    }
+
+    p.description {
+      font-size: 1rem;
+      margin-bottom: 25px;
+      color: #555f77;
+      line-height: 1.4;
+    }
+
+    textarea {
+      width: 100%;
+      height: 140px;
+      padding: 16px 18px;
+      font-size: 1rem;
+      border: 1.5px solid #cbd5e1;
+      border-radius: 8px;
+      resize: vertical;
+      font-family: 'Inter', sans-serif;
+      color: #2d3748;
+      transition: border-color 0.25s ease;
+    }
+
+    textarea:focus {
+      border-color: #3b82f6;
+      box-shadow: 0 0 8px #93c5fd;
+      outline: none;
+    }
+
+    textarea::placeholder {
+      color: #94a3b8;
+      font-style: italic;
+    }
+
+    .button-group {
+      margin-top: 30px;
+      display: flex;
+      justify-content: center;
+      gap: 20px;
+      flex-wrap: wrap;
+    }
+
+    button {
+      background-color: #3b82f6;
+      border: none;
+      color: white;
+      font-weight: 600;
+      padding: 14px 34px;
+      font-size: 1rem;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: background-color 0.3s ease;
+      min-width: 120px;
+      position: relative;
+    }
+
+    button:hover:not(:disabled) {
+      background-color: #2563eb;
+    }
+
+    button:disabled {
+      background-color: #93c5fd;
+      cursor: not-allowed;
+    }
+
+    button.clear-btn {
+      background-color: #f3f4f6;
+      color: #374151;
+      border: 1.5px solid #cbd5e1;
+    }
+
+    button.clear-btn:hover:not(:disabled) {
+      background-color: #e5e7eb;
+    }
+
+    #loader {
+      border: 3px solid #f3f3f3;
+      border-top: 3px solid white;
+      border-radius: 50%;
+      width: 18px;
+      height: 18px;
+      animation: spin 1s linear infinite;
+      position: absolute;
+      right: 14px;
+      display: none;
+    }
+
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+
+    .result, .confidence, .spam-words, .matched-list {
+      margin-top: 20px;
+      font-size: 1rem;
+      opacity: 0;
+      transition: opacity 0.4s ease;
+    }
+
+    .visible { opacity: 1; }
+
+    .result.spam { color: #dc2626; font-weight: bold; }
+    .result.ham { color: #16a34a; font-weight: bold; }
+
+    .matched-list span {
+      display: inline-block;
+      background: #fef3c7;
+      color: #b45309;
+      padding: 4px 8px;
+      border-radius: 6px;
+      margin: 2px 4px;
+      font-size: 0.9rem;
+    }
+
+    @media (max-width: 480px) {
+      .button-group {
+        flex-direction: column;
+        gap: 15px;
+      }
+      button {
+        width: 100%;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Email Spam Classifier</h1>
+    <p class="description">Paste the email content below to check if it’s spam or not.</p>
+
+    <textarea id="message" placeholder="Type your email message here..." aria-label="Email message input"></textarea>
+
+    <div class="button-group">
+      <button id="checkBtn" onclick="checkSpam()">Check
+        <div id="loader"></div>
+      </button>
+      <button class="clear-btn" onclick="clearFields()">Clear</button>
+    </div>
+
+    <div id="result" class="result"></div>
+    <div id="confidence" class="confidence"></div>
+    <div id="spamWords" class="spam-words"></div>
+    <div id="matchedWords" class="matched-list"></div>
+  </div>
+
+  <script>
+    const checkBtn = document.getElementById('checkBtn');
+    const loader = document.getElementById('loader');
+    const resultDiv = document.getElementById('result');
+    const confidenceDiv = document.getElementById('confidence');
+    const spamWordsDiv = document.getElementById('spamWords');
+    const matchedWordsDiv = document.getElementById('matchedWords');
+    const messageInput = document.getElementById('message');
+
+    async function checkSpam() {
+      const message = messageInput.value.trim();
+      clearOutput();
+
+      if (!message) {
+        resultDiv.textContent = "Please enter a message.";
+        resultDiv.classList.add('visible');
+        return;
+      }
+
+      checkBtn.disabled = true;
+      loader.style.display = 'inline-block';
+
+      try {
+        const response = await fetch('/predict', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message })
+        });
+
+        const data = await response.json();
+
+        if (data.prediction === 1) {
+          resultDiv.textContent = 'Result: SPAM';
+          resultDiv.classList.add('visible', 'spam');
+        } else if (data.prediction === 0) {
+          resultDiv.textContent = 'Result: NOT SPAM';
+          resultDiv.classList.add('visible', 'ham');
+        } else {
+          resultDiv.textContent = 'Error: Unable to classify.';
+          resultDiv.classList.add('visible');
+        }
+
+        if (data.confidence !== undefined) {
+          confidenceDiv.textContent = `Confidence: ${(data.confidence * 100).toFixed(2)}%`;
+          confidenceDiv.classList.add('visible');
+        }
+
+        if (data.spam_word_count !== undefined && data.matched_words) {
+          spamWordsDiv.textContent = `Matched Spam Words: ${data.spam_word_count}`;
+          spamWordsDiv.classList.add('visible');
+
+          matchedWordsDiv.innerHTML = data.matched_words.map(word =>
+            `<span>${word}</span>`
+          ).join('');
+          matchedWordsDiv.classList.add('visible');
+        }
+
+      } catch (error) {
+        resultDiv.textContent = "Server error: " + error.message;
+        resultDiv.classList.add('visible');
+      } finally {
+        loader.style.display = 'none';
+        checkBtn.disabled = false;
+      }
+    }
+
+    function clearFields() {
+      messageInput.value = '';
+      clearOutput();
+    }
+
+    function clearOutput() {
+      resultDiv.textContent = '';
+      confidenceDiv.textContent = '';
+      spamWordsDiv.textContent = '';
+      matchedWordsDiv.innerHTML = '';
+      resultDiv.className = 'result';
+      confidenceDiv.className = 'confidence';
+      spamWordsDiv.className = 'spam-words';
+      matchedWordsDiv.className = 'matched-list';
+    }
+  </script>
+</body>
+</html>
